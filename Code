@@ -1,0 +1,144 @@
+<%@ Page Language="VB" AutoEventWireup="false" CodeFile="Dashboard.aspx.vb" Inherits="Dashboard" %>
+
+<!DOCTYPE html>
+<html>
+<head runat="server">
+    <title>Production Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; padding: 20px; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        .header-section { display: flex; justify-content: space-between; margin-bottom: 20px; background: #ecf0f1; padding: 15px; border-radius: 5px; }
+        .input-group { margin-bottom: 10px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; }
+        .grid-style { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .grid-style th { background: #3498db; color: white; padding: 10px; }
+        .grid-style td { padding: 8px; border: 1px solid #ddd; }
+        .btn-submit { background: #27ae60; color: white; padding: 10px 25px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; float: right; margin-top: 20px; }
+        .btn-submit:hover { background: #219150; }
+    </style>
+</head>
+<body>
+    <form id="form1" runat="server">
+    <div class="container">
+        <h2>Production Data Entry</h2>
+        
+        <div class="header-section">
+            <div class="input-group">
+                <label>Production Date</label>
+                <asp:TextBox ID="txtDate" runat="server" TextMode="Date" CssClass="form-control"></asp:TextBox>
+            </div>
+            <div class="input-group">
+                <label>Select Shift</label>
+                <asp:DropDownList ID="ddlShift" runat="server">
+                    <asp:ListItem Text="Shift A" Value="A"></asp:ListItem>
+                    <asp:ListItem Text="Shift B" Value="B"></asp:ListItem>
+                    <asp:ListItem Text="Shift C" Value="C"></asp:ListItem>
+                </asp:DropDownList>
+            </div>
+        </div>
+
+        <asp:GridView ID="gvParameters" runat="server" AutoGenerateColumns="False" CssClass="grid-style">
+            <Columns>
+                <asp:BoundField DataField="DisplayName" HeaderText="Parameter Description" />
+                <asp:TemplateField HeaderText="Database Parameter">
+                    <ItemTemplate>
+                        <asp:Label ID="lblDbName" runat="server" Text='<%# Eval("DbName") %>'></asp:Label>
+                    </ItemTemplate>
+                </asp:TemplateField>
+                <asp:TemplateField HeaderText="Value">
+                    <ItemTemplate>
+                        <asp:TextBox ID="txtValue" runat="server" Text="0" CssClass="form-control"></asp:TextBox>
+                    </ItemTemplate>
+                </asp:TemplateField>
+            </Columns>
+        </asp:GridView>
+
+        <asp:Button ID="btnSave" runat="server" Text="Submit Entry" CssClass="btn-submit" OnClick="btnSave_Click" />
+        <div style="clear:both;"></div>
+    </div>
+    </form>
+</body>
+</html>
+
+
+Imports System.Data
+Imports System.Data.SqlClient
+Imports System.Configuration
+
+Partial Class Dashboard
+    Inherits System.Web.UI.Page
+
+    Protected Sub Page_Load(ByVal sender As Object, ByVal e As System.EventArgs) Handles Me.Load
+        If Not IsPostBack Then
+            txtDate.Text = DateTime.Now.ToString("yyyy-MM-dd")
+            BindParameterGrid()
+        End If
+    End Sub
+
+    Private Sub BindParameterGrid()
+        ' Mapping your Excel parameters to Database names based on your photos
+        Dim dt As New DataTable()
+        dt.Columns.Add("DisplayName")
+        dt.Columns.Add("DbName")
+
+        dt.Rows.Add("WBL CONSUMPTION IN REC-2(M3)", "WBL_CONS_R2")
+        dt.Rows.Add("STEAM GEN. (INCL SB STEEM)", "MSTEAM_FLOW")
+        dt.Rows.Add("DM WATER TOT AFTER DEAERATOR", "FD_CONS")
+        dt.Rows.Add("MILL WATER FM(M3)", "FW_CONS1")
+        dt.Rows.Add("WBL RECV FROM NFL", "WBL_NFL")
+        ' Add more rows here following your provided Excel list...
+
+        gvParameters.DataSource = dt
+        gvParameters.DataBind()
+    End Sub
+
+    Protected Sub btnSave_Click(ByVal sender As Object, ByVal e As EventArgs)
+        Dim connStr As String = ConfigurationManager.ConnectionStrings("MyDbConn").ConnectionString
+        Dim currentDateTime As DateTime = DateTime.Now
+        Dim formattedTime As String = currentDateTime.ToString("HH:mm:ss") ' Form: 05:20:04
+        Dim formattedDate As String = Convert.ToDateTime(txtDate.Text).ToString("MM/dd/yyyy")
+        Dim selectedShift As String = ddlShift.SelectedValue
+
+        Using conn As New SqlConnection(connStr)
+            conn.Open()
+            
+            For Each row As GridViewRow In gvParameters.Rows
+                Dim dbParamName As String = CType(row.FindControl("lblDbName"), Label).Text
+                Dim inputVal As Decimal = 0
+                Decimal.TryParse(CType(row.FindControl("txtValue"), TextBox).Text, inputVal)
+
+                ' Determine which shift column gets the value
+                Dim valA As Decimal = If(selectedShift = "A", inputVal, 0)
+                Dim valB As Decimal = If(selectedShift = "B", inputVal, 0)
+                Dim valC As Decimal = If(selectedShift = "C", inputVal, 0)
+
+                Dim cmdText As String = "INSERT INTO PPIF006_Pulp_PRD " & _
+                    "(Plant, SEC_NAME, Date, Time, Control_ID, PARAMETER_NAME, SHIFTA_TOT, SHIFTB_TOT, SHIFTC_TOT, Status, Modify_Datetime, Creation_Datetime) " & _
+                    "VALUES (@Plant, @Sec, @Date, @Time, @CID, @PName, @SA, @SB, @SC, @Stat, @MDate, @CDate)"
+
+                Using cmd As New SqlCommand(cmdText, conn)
+                    cmd.Parameters.AddWithValue("@Plant", "TP14")
+                    cmd.Parameters.AddWithValue("@Sec", "PR2EV001")
+                    cmd.Parameters.AddWithValue("@Date", formattedDate)
+                    cmd.Parameters.AddWithValue("@Time", formattedTime)
+                    cmd.Parameters.AddWithValue("@CID", DBNull.Value)
+                    cmd.Parameters.AddWithValue("@PName", dbParamName)
+                    cmd.Parameters.AddWithValue("@SA", valA)
+                    cmd.Parameters.AddWithValue("@SB", valB)
+                    cmd.Parameters.AddWithValue("@SC", valC)
+                    cmd.Parameters.AddWithValue("@Stat", 1)
+                    cmd.Parameters.AddWithValue("@MDate", currentDateTime)
+                    cmd.Parameters.AddWithValue("@CDate", currentDateTime)
+
+                    cmd.ExecuteNonQuery()
+                End Using
+            Next
+        End Using
+
+        Response.Write("<script>alert('Data Saved Successfully!');</script>")
+    End Sub
+End Class
+
+
+
